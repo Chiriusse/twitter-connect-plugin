@@ -15,14 +15,12 @@ import org.json.JSONObject;
 
 import android.content.Intent;
 
-import com.twitter.sdk.android.Twitter;
+import com.twitter.sdk.android.core.identity.TwitterAuthClient;
 import com.twitter.sdk.android.core.identity.TwitterLoginButton;
 
-import io.fabric.sdk.android.Fabric;
-import retrofit.client.Response;
-import retrofit.http.GET;
-import retrofit.http.Query;
-import retrofit.mime.TypedByteArray;
+import retrofit2.Response;
+import retrofit2.http.GET;
+import retrofit2.http.Query;
 
 public class TwitterConnect extends CordovaPlugin {
 
@@ -31,7 +29,16 @@ public class TwitterConnect extends CordovaPlugin {
 
 	public void initialize(CordovaInterface cordova, CordovaWebView webView) {
 		super.initialize(cordova, webView);
-		Fabric.with(cordova.getActivity().getApplicationContext(), new Twitter(new TwitterAuthConfig(getTwitterKey(), getTwitterSecret())));
+
+    final Context context = cordova.getActivity().getApplicationContext();
+
+    TwitterConfig config = new TwitterConfig.Builder(context)
+    .logger(new DefaultLogger(Log.DEBUG))
+    .twitterAuthConfig(new TwitterAuthConfig(this.getTwitterKey(), this.getTwitterSecret()))
+    .debug(true)
+    .build();
+    Twitter.initialize(config);
+
 		Log.v(LOG_TAG, "Initialize TwitterConnect");
 	}
 
@@ -53,14 +60,6 @@ public class TwitterConnect extends CordovaPlugin {
 			login(activity, callbackContext);
 			return true;
 		}
-		if (action.equals("logout")) {
-			logout(callbackContext);
-			return true;
-		}
-		if (action.equals("showUser")) {
-			showUser(callbackContext);
-			return true;
-		}
 		return false;
 	}
 
@@ -68,31 +67,18 @@ public class TwitterConnect extends CordovaPlugin {
 		cordova.getThreadPool().execute(new Runnable() {
 			@Override
 			public void run() {
-				Twitter.logIn(activity, new Callback<TwitterSession>() {
-					@Override
-					public void success(Result<TwitterSession> twitterSessionResult) {
-						Log.v(LOG_TAG, "Successful login session!");
-						callbackContext.success(handleResult(twitterSessionResult.data));
+        TwitterAuthClient twitterAuthClient = new TwitterAuthClient();
+        twitterAuthClient.authorize(activity, new Callback<TwitterSession>() {
+          @Override
+          public void success(Result<TwitterSession> result) {
+            callbackContext.success(handleResult(result.data));
+          }
 
-					}
-
-					@Override
-					public void failure(TwitterException e) {
-						Log.v(LOG_TAG, "Failed login session");
-						callbackContext.error("Failed login session");
-					}
-				});
-			}
-		});
-	}
-
-	private void logout(final CallbackContext callbackContext) {
-		cordova.getThreadPool().execute(new Runnable() {
-			@Override
-			public void run() {
-				Twitter.logOut();
-				Log.v(LOG_TAG, "Logged out");
-				callbackContext.success();
+          @Override
+          public void failure(TwitterException exception) {
+            callbackContext.error(exception.toString());
+          }
+        });
 			}
 		});
 	}
@@ -116,31 +102,6 @@ public class TwitterConnect extends CordovaPlugin {
 		void show(@Query("user_id") long id, Callback<Response> cb);
 	}
 
-	private void showUser(final CallbackContext callbackContext) {
-		cordova.getThreadPool().execute(new Runnable() {
-			@Override
-			public void run() {
-				UserServiceApi twitterApiClient = new UserServiceApi(Twitter.getSessionManager().getActiveSession());
-				UserService userService = twitterApiClient.getCustomService();
-				userService.show(Twitter.getSessionManager().getActiveSession().getUserId(), new Callback<Response>() {
-					@Override
-					public void success(Result<Response> result) {
-						try {
-							callbackContext.success(new JSONObject(new String(((TypedByteArray) result.response.getBody()).getBytes())));
-						} catch (JSONException e) {
-							e.printStackTrace();
-						}
-					}
-					@Override
-					public void failure(TwitterException exception) {
-						Log.v(LOG_TAG, "Twitter API Failed "+exception.getLocalizedMessage());
-						callbackContext.error(exception.getLocalizedMessage());
-					}
-				});
-			}
-		});
-	}
-	
 	private JSONObject handleResult(TwitterSession result) {
 		JSONObject response = new JSONObject();
 		try {
